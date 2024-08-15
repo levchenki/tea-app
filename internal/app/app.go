@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/levchenki/tea-app/internal/storage/postgres"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,10 +18,26 @@ func Run() {
 	logger.Info("Starting url-shortener", slog.String("env", cfg.Env))
 	logger.Debug("Debug messages are enabled")
 
-	r := routes.SetupRouter(logger)
-	port := cfg.HTTPServer.Port
+	err := postgres.RunMigrations(cfg)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	logger.Info("The migrations have been completed successfully")
 
-	http.ListenAndServe(fmt.Sprintf(":%s", port), r)
+	r := routes.SetupRouter(logger)
+
+	srv := &http.Server{
+		Addr:         fmt.Sprintf(":%s", cfg.HTTPServer.Port),
+		Handler:      r,
+		ReadTimeout:  cfg.HTTPServer.Timeout,
+		WriteTimeout: cfg.HTTPServer.Timeout,
+		IdleTimeout:  cfg.HTTPServer.IdleTimeout,
+	}
+
+	if err := srv.ListenAndServe(); err != nil {
+		logger.Error("Failed to start the server")
+	}
 }
 
 func setupLogger(env string) *slog.Logger {

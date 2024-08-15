@@ -7,8 +7,8 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o tea-bot-api ./cmd/tea-app/main.go
+RUN go build -o tea-app ./cmd/tea-app/main.go
 
-RUN chmod +x tea-bot-api
+RUN chmod +x tea-app
 
-CMD [ "./tea-bot-api" ]
+CMD [ "./tea-app" ]
