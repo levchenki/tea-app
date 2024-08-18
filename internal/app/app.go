@@ -2,30 +2,50 @@ package app
 
 import (
 	"fmt"
+	"github.com/levchenki/tea-app/internal/controller/http/routes"
+	v1 "github.com/levchenki/tea-app/internal/controller/http/routes/v1"
+	"github.com/levchenki/tea-app/internal/logger"
 	"github.com/levchenki/tea-app/internal/storage/postgres"
+
+	"github.com/levchenki/tea-app/internal/migrations"
+	"github.com/levchenki/tea-app/internal/repository"
+
+	"github.com/levchenki/tea-app/internal/service"
 	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/levchenki/tea-app/internal/config"
-	"github.com/levchenki/tea-app/internal/routes"
 )
 
 func Run() {
 	cfg := config.MustLoad()
 
-	logger := setupLogger(cfg.Env)
-	logger.Info("Starting url-shortener", slog.String("env", cfg.Env))
-	logger.Debug("Debug messages are enabled")
+	lg := logger.SetupLogger(cfg.Env)
+	lg.Info("Starting url-shortener", slog.String("env", cfg.Env))
+	lg.Debug("Debug messages are enabled")
 
-	err := postgres.RunMigrations(cfg)
+	migrations.Run(cfg, lg)
+
+	db, err := postgres.New(cfg)
 	if err != nil {
-		logger.Error(err.Error())
+		//todo lg.Fatal()
+		lg.Error("Failed to connect to database", err)
 		os.Exit(1)
 	}
-	logger.Info("The migrations have been completed successfully")
 
-	r := routes.SetupRouter(logger)
+	defer func() {
+		err := db.Close()
+		if err != nil {
+			lg.Error("Failed to close database connection", err)
+			os.Exit(1)
+		}
+	}()
+
+	teaService := service.NewTeaService(repository.NewTeaRepository(db))
+
+	r := routes.SetupRouter(lg)
+	r.Mount("/tea", v1.NewTeaRouter(lg, teaService))
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.HTTPServer.Port),
@@ -36,33 +56,6 @@ func Run() {
 	}
 
 	if err := srv.ListenAndServe(); err != nil {
-		logger.Error("Failed to start the server")
+		lg.Error("Failed to start the server")
 	}
-}
-
-func setupLogger(env string) *slog.Logger {
-
-	var log *slog.Logger
-
-	switch env {
-	case config.EnvDevelopment:
-		log = slog.New(
-			slog.NewTextHandler(
-				os.Stdout,
-				&slog.HandlerOptions{
-					Level: slog.LevelDebug,
-				},
-			),
-		)
-	case config.EnvProduction:
-		log = slog.New(
-			slog.NewJSONHandler(
-				os.Stdout,
-				&slog.HandlerOptions{
-					Level: slog.LevelInfo,
-				},
-			),
-		)
-	}
-	return log
 }
